@@ -61,8 +61,8 @@ namespace nvvk {
   prior createShaderModule.
 
   m_filetype is crucial for this. You can pass raw spir-v files or GLSL.
-  If GLSL is used either the backdoor m_useNVextension must be used, or
-  preferrable shaderc (which must be added via _add_package_ShaderC() in CMake of the project)
+  If GLSL is used, shaderc must be used as well (which must be added via
+  _add_package_ShaderC() in CMake of the project)
 
   Example:
 
@@ -118,13 +118,12 @@ public:
   {
     ShaderModule()
         : module(0)
-        , useNVextension(false)
     {
     }
 
     VkShaderModule module;
+    std::string    moduleSPIRV;
     Definition     definition;
-    bool           useNVextension;
   };
 
   void init(VkDevice device, int apiMajor = 1, int apiMinor = 1);
@@ -156,13 +155,13 @@ public:
   const ShaderModule& getShaderModule(ShaderModuleID idx) const;
   const char*         getCode(ShaderModuleID idx, size_t* len = NULL) const;
   const size_t        getCodeLen(ShaderModuleID idx) const;
+  bool                dumpSPIRV(ShaderModuleID idx, const char * filename) const;
 
 
   // state will affect the next created shader module
   // also keep m_filetype in mind!
-  bool m_preprocessOnly = false;
-  bool m_useNVextension = false;
-
+  bool m_preprocessOnly  = false;
+  bool m_keepModuleSPIRV = false;
 
   //////////////////////////////////////////////////////////////////////////
   //

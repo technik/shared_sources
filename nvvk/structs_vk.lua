@@ -50,7 +50,7 @@ local header =
 -- 1. Setup environment variable NVVK_VULKAN_XML pointing to vk.xml
 --    or use VULKAN_SDK >= 1.2.135.0
 --
--- 2. Modify the extension whitelist
+-- 2. Modify the extension subset (allowlist)
 --
 -- 3. Check out this and the other structs_vk files for write access
 --
@@ -64,7 +64,9 @@ local header =
 
 local VULKAN_XML = os.getenv("NVVK_VULKAN_XML") or os.getenv("VULKAN_SDK").."/share/vulkan/registry/vk.xml"
 local extensionSubset = [[
-    VK_KHR_ray_tracing
+    VK_KHR_acceleration_structure
+    VK_KHR_ray_query
+    VK_KHR_ray_tracing_pipeline
     VK_KHR_push_descriptor
     VK_KHR_8bit_storage
     VK_KHR_create_renderpass2
@@ -108,6 +110,9 @@ local extensionSubset = [[
 
     VK_KHR_external_memory_fd
     VK_KHR_external_semaphore_fd
+    
+    VK_EXT_validation_features
+    VK_KHR_swapchain
     ]]
     
 

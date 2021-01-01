@@ -180,7 +180,7 @@ bool ShaderModuleManager::setupShaderModule(ShaderModule& module)
 
 #if USESHADERC
     shaderc_compilation_result_t result = nullptr;
-    if(definition.filetype == FILETYPE_GLSL && !module.useNVextension)
+    if(definition.filetype == FILETYPE_GLSL)
     {
       shaderc_shader_kind shaderkind = (shaderc_shader_kind)m_usedSetupIF->getTypeShadercKind(definition.type);
       shaderc_compile_options_t options = (shaderc_compile_options_t)m_usedSetupIF->getShadercCompileOption(s_shadercCompiler);
@@ -200,6 +200,11 @@ bool ShaderModuleManager::setupShaderModule(ShaderModule& module)
         }
 
         shaderc_compile_options_set_optimization_level(m_shadercOptions, m_shadercOptimizationLevel);
+        
+        // Keep debug info, doesn't cost shader execution perf, only compile-time and memory size.
+        // Improves usage for debugging tools, not recommended for shipping application,
+        // but good for developmenent builds.
+        shaderc_compile_options_set_generate_debug_info(m_shadercOptions);
 
         options = m_shadercOptions;
       }
@@ -247,7 +252,7 @@ bool ShaderModuleManager::setupShaderModule(ShaderModule& module)
     }
     else
 #else
-    if(definition.filetype == FILETYPE_GLSL && !module.useNVextension)
+    if(definition.filetype == FILETYPE_GLSL)
     {
       LOGW("No direct GLSL support\n");
       return false;
@@ -260,6 +265,10 @@ bool ShaderModuleManager::setupShaderModule(ShaderModule& module)
     }
 
     vkresult = ::vkCreateShaderModule(m_device, &shaderModuleInfo, nullptr, &module.module);
+
+    if (vkresult == VK_SUCCESS && m_keepModuleSPIRV) {
+      module.moduleSPIRV = std::string((const char*)shaderModuleInfo.pCode, shaderModuleInfo.codeSize);
+    }
 
 #if USESHADERC
     if(result)
@@ -290,7 +299,6 @@ ShaderModuleID ShaderModuleManager::createShaderModule(const Definition& definit
 {
   ShaderModule module;
   module.definition     = definition;
-  module.useNVextension = m_useNVextension;
 
   setupShaderModule(module);
 
@@ -420,5 +428,19 @@ const size_t ShaderModuleManager::getCodeLen(ShaderModuleID idx) const
   return m_shadermodules[idx].definition.content.size();
 }
 
+
+bool ShaderModuleManager::dumpSPIRV(ShaderModuleID idx, const char* filename) const 
+{
+  if (m_shadermodules[idx].moduleSPIRV.empty()) return false;
+
+  FILE* f = fopen(filename, "wb");
+  if (f) {
+    fwrite(m_shadermodules[idx].moduleSPIRV.data(), m_shadermodules[idx].moduleSPIRV.size(), 1, f);
+    fclose(f);
+    return true;
+  }
+
+  return false;
+}
 
 }  // namespace nvvk

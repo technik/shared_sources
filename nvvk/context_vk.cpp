@@ -140,22 +140,21 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Context::debugMessengerCallback(VkDebugUtilsMessa
   // repeating nvprintfLevel to help with breakpoints : so we can selectively break right after the print
   if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
   {
-    nvprintfLevel(level, "VERBOSE: \n --> %s\n", callbackData->pMessageIdName, callbackData->pMessage);
+    nvprintfLevel(level, "VERBOSE: %s \n --> %s\n", callbackData->pMessageIdName, callbackData->pMessage);
   }
   else if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
   {
-    nvprintfLevel(level, "INFO: \n --> %s\n", callbackData->pMessageIdName, callbackData->pMessage);
+    nvprintfLevel(level, "INFO: %s \n --> %s\n", callbackData->pMessageIdName, callbackData->pMessage);
   }
   else if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
   {
     level = LOGLEVEL_WARNING;
-    nvprintfLevel(level, "WARNING: \n --> %s\n", callbackData->pMessageIdName, callbackData->pMessage);
+    nvprintfLevel(level, "WARNING: %s \n --> %s\n", callbackData->pMessageIdName, callbackData->pMessage);
   }
   else if(messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
   {
     level = LOGLEVEL_ERROR;
-    nvprintfLevel(level, "ERROR: %s \n --> %s", callbackData->pMessageIdName, callbackData->pMessage);
-    nvprintfLevel(level, "\n");  // placeholder for breakpoint
+    nvprintfLevel(level, "ERROR: %s \n --> %s\n", callbackData->pMessageIdName, callbackData->pMessage);
   }
   else if(messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT)
   {
@@ -166,6 +165,9 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Context::debugMessengerCallback(VkDebugUtilsMessa
     nvprintfLevel(level, "%s \n --> %s\n", callbackData->pMessageIdName, callbackData->pMessage);
   }
 
+  // this seems redundant with the info already in callbackData->pMessage
+#if 0
+  
   if(callbackData->objectCount > 0)
   {
     for(uint32_t object = 0; object < callbackData->objectCount; ++object)
@@ -183,7 +185,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Context::debugMessengerCallback(VkDebugUtilsMessa
            callbackData->pCmdBufLabels[label].color[0], callbackData->pCmdBufLabels[label].color[1],
            callbackData->pCmdBufLabels[label].color[2], callbackData->pCmdBufLabels[label].color[3]);
     }
-  }
+#endif
   // Don't bail out, but keep going.
   return VK_FALSE;
 }
@@ -296,6 +298,7 @@ bool Context::initInstance(const ContextCreateInfo& info)
   instanceCreateInfo.ppEnabledExtensionNames = m_usedInstanceExtensions.data();
   instanceCreateInfo.enabledLayerCount       = static_cast<uint32_t>(m_usedInstanceLayers.size());
   instanceCreateInfo.ppEnabledLayerNames     = m_usedInstanceLayers.data();
+  instanceCreateInfo.pNext = info.instanceCreateInfoExt;
 
   NVVK_CHECK(vkCreateInstance(&instanceCreateInfo, nullptr, &m_instance));
 
@@ -508,35 +511,75 @@ bool Context::initDevice(uint32_t deviceIndex, const ContextCreateInfo& info)
   nvvk::DebugUtil::setEnabled(has_VK_EXT_debug_utils != 0);
 
   // Now we have the device and instance, we can initialize the debug tool
-
   nvvk::DebugUtil debugUtil(m_device);
 
-  // get some default queues
-  uint32_t queueFamilyIndex = 0;
-  for(auto& it : m_physicalInfo.queueProperties)
+  // Now pick 3 distinct queues for graphics, compute and transfer operations
+  struct QueueScore
   {
-    if((it.queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT))
-       == (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT))
-    {
-      vkGetDeviceQueue(m_device, queueFamilyIndex, 0 /*queueIndex*/, &m_queueGCT.queue);
-      m_queueGCT.familyIndex = queueFamilyIndex;
-      debugUtil.setObjectName(m_queueGCT.queue, "queueGCT");
-    }
-    else if((it.queueFlags & VK_QUEUE_TRANSFER_BIT) == VK_QUEUE_TRANSFER_BIT)
-    {
-      vkGetDeviceQueue(m_device, queueFamilyIndex, 0 /*queueIndex*/, &m_queueT.queue);
-      m_queueT.familyIndex = queueFamilyIndex;
-      debugUtil.setObjectName(m_queueT.queue, "queueT");
-    }
-    else if((it.queueFlags & VK_QUEUE_COMPUTE_BIT))
-    {
-      vkGetDeviceQueue(m_device, queueFamilyIndex, 0 /*queueIndex*/, &m_queueC.queue);
-      m_queueC.familyIndex = queueFamilyIndex;
-      debugUtil.setObjectName(m_queueC.queue, "queueC");
-    }
+    uint32_t score;  // the lower the score, the more 'specialized' it is
+    uint32_t familyIndex;
+    uint32_t queueIndex;
+  };
 
-    queueFamilyIndex++;
+  std::vector<QueueScore> queueScores;
+  for(uint32_t qF = 0; qF < m_physicalInfo.queueProperties.size(); ++qF)
+  {
+    const auto& queueFamily = m_physicalInfo.queueProperties[qF];
+
+    QueueScore score{0, qF, 0};
+    if(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+    {
+      score.score++;
+    }
+    if(queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT)
+    {
+      score.score++;
+    }
+    if(queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT)
+    {
+      score.score++;
+    }
+    for(uint32_t qI = 0; qI < queueFamily.queueCount; ++qI)
+    {
+      score.queueIndex = qI;
+      queueScores.emplace_back(score);
+    }
   }
+
+  // Sort the queues for specialization, highest specialization has lowest score
+  std::sort(queueScores.begin(), queueScores.end(), [](const QueueScore& lhs, const QueueScore& rhs) {
+    if(lhs.score < rhs.score)
+      return true;
+    if(lhs.score > rhs.score)
+      return false;
+    return lhs.queueIndex < rhs.queueIndex;
+  });
+
+  auto findQueue = [this, &queueScores, &debugUtil](VkQueueFlags needFlags, const std::string& name) -> Queue {
+    for(uint32_t q = 0; q < queueScores.size(); ++q)
+    {
+      const QueueScore& score  = queueScores[q];
+      auto&             family = m_physicalInfo.queueProperties[score.familyIndex];
+      if((family.queueFlags & needFlags) == needFlags)
+      {
+        Queue queue;
+        vkGetDeviceQueue(m_device, score.familyIndex, score.queueIndex, &queue.queue);
+        queue.familyIndex = score.familyIndex;
+        queue.queueIndex  = score.queueIndex;
+        debugUtil.setObjectName(queue.queue, name);
+        // we used this queue
+        queueScores.erase(queueScores.begin() + q);
+        return queue;
+      }
+    }
+    return Queue();
+  };
+
+  m_queueGCT = findQueue(VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT, "queueGCT");
+  assert(m_queueGCT.familyIndex != ~uint32_t(0));
+
+  m_queueC = findQueue(VK_QUEUE_COMPUTE_BIT, "queueC");
+  m_queueT = findQueue(VK_QUEUE_TRANSFER_BIT, "queueT");
 
   return true;
 }
@@ -854,7 +897,7 @@ void Context::initDebugUtils()
     dbg_messenger_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     dbg_messenger_create_info.pNext = nullptr;
     dbg_messenger_create_info.flags = 0;
-    dbg_messenger_create_info.messageSeverity =
+    dbg_messenger_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     dbg_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
                                             | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;

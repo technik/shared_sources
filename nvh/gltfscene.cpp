@@ -30,6 +30,9 @@
 #include <numeric>
 
 namespace nvh {
+
+#define EXTENSION_ATTRIB_IRAY "NV_attributes_iray"
+
 //--------------------------------------------------------------------------------------------------
 // Collect the value of all materials
 //
@@ -165,6 +168,7 @@ void GltfScene::importDrawableNodes(const tinygltf::Model& tmodel, GltfAttribute
   }
 
   computeSceneDimensions();
+  computeCamera();
 
   m_meshToPrimMeshes.clear();
   primitiveIndices32u.clear();
@@ -198,6 +202,30 @@ void GltfScene::processNode(const tinygltf::Model& tmodel, int& nodeIdx, const n
     GltfCamera camera;
     camera.worldMatrix = worldMatrix;
     camera.cam         = tmodel.cameras[tmodel.nodes[nodeIdx].camera];
+
+    // If the node has the Iray extension, extract the camera information.
+    if(hasExtension(tnode.extensions, EXTENSION_ATTRIB_IRAY))
+    {
+      auto& iray_ext   = tnode.extensions.at(EXTENSION_ATTRIB_IRAY);
+      auto& attributes = iray_ext.Get("attributes");
+      for(size_t idx = 0; idx < attributes.ArrayLen(); idx++)
+      {
+        auto&       attrib   = attributes.Get((int)idx);
+        std::string attName  = attrib.Get("name").Get<std::string>();
+        auto&       attValue = attrib.Get("value");
+        if(attValue.IsArray())
+        {
+          auto vec = getVector<float>(attValue);
+          if(attName == "iview:position")
+            camera.eye = {vec[0], vec[1], vec[2]};
+          else if(attName == "iview:interest")
+            camera.center = {vec[0], vec[1], vec[2]};
+          else if(attName == "iview:up")
+            camera.up = {vec[0], vec[1], vec[2]};
+        }
+      }
+    }
+
     m_cameras.emplace_back(camera);
   }
   else if(tnode.extensions.find(EXTENSION_LIGHT) != tnode.extensions.end())
@@ -449,7 +477,11 @@ void GltfScene::processMesh(const tinygltf::Model& tmodel, const tinygltf::Primi
         // In case of degenerated UV coordinates
         if(s1 == 0 || s2 == 0 || t1 == 0 || t2 == 0)
         {
-          const nvmath::vec3f N = nvmath::cross<float>({x1, y1, z1}, {x2, y2, z2});
+          const auto& nrm1 = m_normals[g_idx0];
+          const auto& nrm2 = m_normals[g_idx1];
+          const auto& nrm3 = m_normals[g_idx2];
+          const auto  N    = nvmath::vec3(nrm1 + nrm2 + nrm3) / nvmath::vec3(3);  // Average on the triangle normals
+
           if(abs(N.x) > abs(N.y))
             sdir = vec3(N.z, 0, -N.x) / sqrt(N.x * N.x + N.z * N.z);
           else
@@ -636,4 +668,30 @@ GltfStats GltfScene::getStatistics(const tinygltf::Model& tinyModel)
 
   return stats;
 }
+
+
+//--------------------------------------------------------------------------------------------------
+// Going through all cameras and find the position and center of interest.
+// - The eye or position of the camera is found in the translation part of the matrix
+// - The center of interest is arbitrary set in front of the camera to a distance equivalent
+//   to the eye and the center of the scene. If the camera is pointing toward the middle
+//   of the scene, the camera center will be equal to the scene center.
+// - The up vector is always Y up for now.
+//
+void GltfScene::computeCamera()
+{
+  for(auto& camera : m_cameras)
+  {
+    if(camera.eye == camera.center)  // Applying the rule only for uninitialized camera.
+    {
+      camera.worldMatrix.get_translation(camera.eye);
+      float distance = nvmath::length(m_dimensions.center - camera.eye);
+      auto  rotMat   = camera.worldMatrix.get_rot_mat3();
+      camera.center  = {0, 0, -distance};
+      camera.center  = camera.eye + (rotMat * camera.center);
+      camera.up      = {0, 1, 0};
+    }
+  }
+}
+
 }  // namespace nvh
