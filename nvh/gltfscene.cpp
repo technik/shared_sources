@@ -53,8 +53,19 @@ void GltfScene::importMaterials(const tinygltf::Model& tmodel)
 
     // PbrMetallicRoughness
     auto& tpbr = tmat.pbrMetallicRoughness;
-    gmat.pbrBaseColorFactor =
-        nvmath::vec4f(tpbr.baseColorFactor[0], tpbr.baseColorFactor[1], tpbr.baseColorFactor[2], tpbr.baseColorFactor[3]);
+    if (tmat.extensions.find("HALO_blendMat") != tmat.extensions.end())
+    {
+        auto ext = tmat.extensions.find("HALO_blendMat");
+        if(ext->second.Has("scale"))
+            gmat.normalTextureScale = (float)ext->second.Get("scale").GetNumberAsDouble();
+
+        if (ext->second.Has("mix_tex_ndx"))
+            gmat.blendTextureIndex = ext->second.Get("mix_tex_ndx").GetNumberAsInt();
+
+        if (ext->second.Has("secondary_mat"))
+            gmat.secondaryMat = ext->second.Get("secondary_mat").GetNumberAsInt();
+    }
+    gmat.pbrBaseColorFactor = nvmath::vec4f(tpbr.baseColorFactor[0], tpbr.baseColorFactor[1], tpbr.baseColorFactor[2], tpbr.baseColorFactor[3]);
     gmat.pbrBaseColorTexture         = tpbr.baseColorTexture.index;
     gmat.pbrMetallicFactor           = static_cast<float>(tpbr.metallicFactor);
     gmat.pbrMetallicRoughnessTexture = tpbr.metallicRoughnessTexture.index;

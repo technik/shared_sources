@@ -30,6 +30,7 @@
 #include <cassert>
 #include <string>
 #include <vector>
+#include <iterator>
 #include <vulkan/vulkan.h>
 
 namespace nvvk {
